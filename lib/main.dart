@@ -105,7 +105,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Join Chat Room'),
+        title: Text('Walkie Talkie'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
       ),
@@ -125,7 +125,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Enter Room Details',
+                        'Enter Chat Details',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       SizedBox(height: 24),
@@ -178,7 +178,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _joinRoom,
                           child: Text(
-                            'Join Room',
+                            'Join Chat',
                             style: TextStyle(fontSize: 16),
                           ),
                         ),
@@ -381,22 +381,45 @@ class _ChatScreenState extends State<ChatScreen> {
 
     await _speech.listen(
       onResult: (result) async {
-        setState(() {
-          _currentText = result.recognizedWords;
-          if (result.finalResult) {
+        if (result.finalResult) {
+          setState(() {
             _isListening = false;
-            _translate(
-              _currentText,
-              widget.fromLanguage,
-              widget.toLanguage,
-            ).then((translated) {
-              setState(() {
-                _translatedText = translated;
-                _showSendButton = true;
-              });
-            });
+          });
+
+          // First translate to fromLanguage if needed
+          String originalText = result.recognizedWords;
+          // Detect language by translating with 'auto' and checking the source language code
+          final translation = await _translator.translate(
+            originalText,
+            from: 'auto',
+            to: _languageCode(widget.fromLanguage),
+          );
+          String detectedLanguage =
+              translation.sourceLanguage?.code ??
+              _languageCode(widget.fromLanguage);
+
+          if (detectedLanguage != _languageCode(widget.fromLanguage)) {
+            originalText = translation.text;
           }
-        });
+
+          setState(() => _currentText = originalText);
+
+          // Then translate to target language
+          final translated = await _translate(
+            originalText,
+            widget.fromLanguage,
+            widget.toLanguage,
+          );
+
+          setState(() {
+            _translatedText = translated;
+            _showSendButton = true;
+          });
+        } else {
+          setState(() {
+            _currentText = result.recognizedWords;
+          });
+        }
       },
       localeId: _languageCode(widget.fromLanguage),
     );
@@ -434,14 +457,34 @@ class _ChatScreenState extends State<ChatScreen> {
   void _sendTypedMessage() async {
     if (_textController.text.isNotEmpty) {
       HapticFeedback.lightImpact();
-      final originalText = _textController.text;
+      final inputText = _textController.text;
+
       if (socket?.connected ?? false) {
         setState(() => _isTranslating = true);
+
+        // First, detect the language of input text using translation with 'auto'
+        final translation = await _translator.translate(
+          inputText,
+          from: 'auto',
+          to: _languageCode(widget.fromLanguage),
+        );
+        String detectedLanguage =
+            translation.sourceLanguage?.code ??
+            _languageCode(widget.fromLanguage);
+
+        // If input is not in fromLanguage, translate it to fromLanguage first
+        String originalText = inputText;
+        if (detectedLanguage != _languageCode(widget.fromLanguage)) {
+          originalText = translation.text;
+        }
+
+        // Then translate to target language
         final translatedText = await _translate(
           originalText,
           widget.fromLanguage,
           widget.toLanguage,
         );
+
         socket?.emit('message', {
           'roomId': widget.roomId,
           'originalText': originalText,
@@ -449,6 +492,7 @@ class _ChatScreenState extends State<ChatScreen> {
           'originalLanguage': widget.fromLanguage,
           'socketId': socket?.id,
         });
+
         setState(() {
           _textController.clear();
           _isTranslating = false;
@@ -477,7 +521,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Room: ${widget.roomId}'),
+        title: Text('Chat: ${widget.roomId}'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         actions: [
           Padding(
@@ -621,13 +665,26 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           ),
                         ),
-                        if (_showSendButton) SizedBox(width: 12),
-                        if (_showSendButton)
+                        if (_showSendButton) ...[
+                          SizedBox(width: 12),
                           FloatingActionButton(
                             onPressed: _sendMessage,
                             backgroundColor: Colors.amber,
                             child: Icon(Icons.send),
                           ),
+                          SizedBox(width: 8),
+                          FloatingActionButton(
+                            onPressed: () {
+                              setState(() {
+                                _currentText = '';
+                                _translatedText = '';
+                                _showSendButton = false;
+                              });
+                            },
+                            backgroundColor: Colors.red,
+                            child: Icon(Icons.close),
+                          ),
+                        ],
                         SizedBox(width: 12),
                         FloatingActionButton.small(
                           onPressed: () {
