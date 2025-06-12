@@ -244,7 +244,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _initSocket() {
-    const serverUrl = 'https://translator-socket-1.onrender.com';
+    const serverUrl = 'https://translator-socket.onrender.com/';
     socket = IO.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
